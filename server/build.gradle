@@ -1,0 +1,83 @@
+import org.objectweb.asm.Opcodes
+import org.objectweb.asm.ClassReader
+import org.objectweb.asm.tree.ClassNode
+
+import java.nio.file.Files
+
+buildscript {
+    repositories {
+        mavenCentral()
+    }
+    dependencies {
+        classpath "org.ow2.asm:asm:9.2"
+        classpath "org.ow2.asm:asm-tree:9.2"
+    }
+}
+
+plugins {
+    id 'java'
+}
+
+group 'org.example'
+version '1.0-SNAPSHOT'
+
+repositories {
+    mavenCentral()
+}
+
+configurations {
+    moduleApi
+}
+
+Set<String> exports = new HashSet<>()
+def readExportsTask = tasks.register("readExports")
+readExportsTask.configure {
+    it.dependsOn(tasks.named("compileJava"))
+    it.doFirst {
+        File moduleInfoFile = tasks.compileJava.outputs.files.getFiles().stream()
+                .map(f -> new File(f, "module-info.class"))
+                .filter(f -> f.exists())
+                .findFirst().get()
+        ClassNode classNode = new ClassNode(Opcodes.ASM8)
+        try (InputStream is = Files.newInputStream(moduleInfoFile.toPath())) {
+            ClassReader classReader = new ClassReader(is)
+            classReader.accept(classNode, 0)
+        }
+        classNode.module.exports.forEach(n -> {
+            System.out.println(n.packaze)
+            exports.add(n.packaze)
+        })
+    }
+}
+
+def moduleApiJarTask = tasks.register("moduleApiJar", Jar)
+moduleApiJarTask.configure {
+    it.dependsOn(readExportsTask)
+    it.archiveAppendix.set("api")
+    it.from {
+        sourceSets.main.output
+    }
+    it.include { FileTreeElement e ->
+        String path = e.relativePath
+        System.out.println("Checking: " + path)
+        if (path.endsWith(".class")) {
+            int lastSlash = path.lastIndexOf('/')
+            if (lastSlash == -1) {
+                lastSlash = 0
+            }
+            String packagePath = path.substring(0, lastSlash)
+            System.out.println("Package: " + packagePath)
+            if (exports.contains(packagePath) == false) {
+                System.out.println("Filtering: " + path)
+                return false
+            }
+        }
+        return true
+
+    }
+}
+
+artifacts {
+    moduleApi moduleApiJarTask
+}
+

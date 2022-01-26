@@ -1,0 +1,4 @@
+rootProject.name = 'modularized-app'
+include 'server'
+include 'analysis-component'
+
